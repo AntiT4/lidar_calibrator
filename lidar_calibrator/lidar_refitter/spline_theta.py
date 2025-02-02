@@ -29,21 +29,21 @@ class LidarCalibrator(object):
         """Evaluate a polynomial at given theta."""
         return sum(c * (theta ** i) for i, c in enumerate(coeff))
 
-    def calibrate(self, theta: np.ndarray) -> CalibrateResult:
+    def calibrate(self, theta: np.ndarray) -> np.ndarray:
         """Perform the same calibration operation for each theta in an array or a single value."""
         theta = np.asarray(theta)  # Ensure theta is a numpy array
 
         # Apply the calibration function element-wise
         def single_calibrate(t):
             if t >= 75.0:
-                return CalibrateResult(t, 0.0, 1.0, 0.0, 0.0)
+                return np.array(0.0)
 
             mu_val = self.poly_eval(t, self.coeff_mu)
             sigma_val = max(self.poly_eval(t, self.coeff_sigma), 1e-8)
             c_param = mu_val / sigma_val
             reloc_val = folded_normal_sample(mu_val,sigma_val, size=1)[0]
 
-            return CalibrateResult(t, mu_val, sigma_val, c_param, reloc_val.item())
+            return reloc_val
 
         # Vectorize the function so it works on both scalars and arrays
         vectorized_calibrate = np.vectorize(single_calibrate, otypes=[object])

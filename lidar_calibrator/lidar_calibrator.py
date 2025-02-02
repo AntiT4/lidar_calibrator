@@ -5,6 +5,7 @@ from sensor_msgs.msg import PointCloud2, PointField
 import numpy as np
 import struct
 from typing import Tuple
+from std_msgs.msg import Header
 from .lidar_refitter import LidarCalibrator
 
 
@@ -69,7 +70,7 @@ def create_pointcloud2(x_arr: np.ndarray, y_arr: np.ndarray, z_arr: np.ndarray) 
     # PointCloud2 메시지 설정
     cloud_msg = PointCloud2()
     cloud_msg.header = Header()
-    cloud_msg.header.frame_id = "lidar_frame"  # 프레임 ID 설정
+    cloud_msg.header.frame_id = "XT16"  # 프레임 ID 설정
     cloud_msg.height = 1  # 1이면 비구조화된 포인트 클라우드
     cloud_msg.width = num_points  # 포인트 개수
     cloud_msg.is_dense = True  # NaN 값 없음
@@ -113,6 +114,7 @@ class PointCloudPubSub(Node):
         self.publisher
 
         self.plate_angle: float = 0.0
+        self.plate_angle *= (np.pi / 180)
         self.calibrator: LidarCalibrator = LidarCalibrator()
         self.lidar_points: np.ndarray = None
         self.lidar_angles: np.ndarray = None
@@ -120,28 +122,35 @@ class PointCloudPubSub(Node):
     def pointcloud_callback(self, msg: PointCloud2) -> None:
         """PointCloud2 데이터를 받아서 NumPy 배열로 변환 후 출력"""
         self.lidar_points = self.convert_pointcloud2_to_numpy(msg)
-        self.get_logger().info(f"Received PointCloud2 with {len(self.lidar_points)} points")
+        self.get_logger().info(f"Received PointCloud2 with {self.lidar_points.shape} points")
 
         self.publish_converted()
 
     def publish_converted(self) -> PointCloud2:
         if self.lidar_points is None:
             return None
+        if self.lidar_points.shape[0] < 10:
+            return None
         r_arr, lat_arr, lon_arr = cartesian_to_spherical_numpy(
             self.lidar_points[:, 0], self.lidar_points[:, 1], self.lidar_points[:, 2]
         )
         self.lidar_angles = self.calculate_angles()
-        conv_r_arr = r_arr + self.calibrator.calibrate(self.lidar_angles)
-        x_arr, y_arr, z_arr = spherical_to_cartesian_numpy(conv_r_arr, lat_arr, lon_arr)
+        error = self.calibrator.calibrate(self.lidar_angles)
+        # self.get_logger().info(f"r_arr = {r_arr.shape}, error = {error.shape}")
+        conv_r_arr = r_arr.reshape(-1, 1) + error
+        x_arr, y_arr, z_arr = spherical_to_cartesian_numpy(conv_r_arr.reshape(-1), lat_arr, lon_arr)
+        # self.get_logger().info(f"x = {x_arr.shape}, y = {y_arr.shape}, z = {z_arr.shape}")
         self.publisher.publish(create_pointcloud2(x_arr, y_arr, z_arr))
 
     def calculate_angles(self) -> np.ndarray:
-        normal_vec = np.ndarray([np.cos(self.plate_angle), np.sin(self.plate_angle), 0.0])
-        normal_ray = self.lidar_points / np.linalg.norm(normal_vec)
+        normal_vec = np.array([np.cos(self.plate_angle), np.sin(self.plate_angle), 0.0], dtype=np.float32)
+        normal_ray = self.lidar_points / np.linalg.norm(self.lidar_points, axis=1, keepdims=True)
 
         dot_product = np.dot(normal_ray, normal_vec)
 
         incidence_angle = np.arccos(np.clip(dot_product, -1.0, 1.0))
+        incidence_angle = incidence_angle * 180 / np.pi
+        self.get_logger().info(f"angle max = {max(incidence_angle)}, min = {min(incidence_angle)}")
         return incidence_angle.reshape(-1, 1)
 
     def convert_pointcloud2_to_numpy(self, cloud_msg: PointCloud2) -> np.ndarray:
@@ -152,7 +161,6 @@ class PointCloudPubSub(Node):
         point_step = cloud_msg.point_step
         row_step = cloud_msg.row_step
         data = cloud_msg.data
-
         # PointCloud2 데이터 파싱
         for i in range(0, len(data), point_step):
             x, y, z = struct.unpack_from('fff', data, offset=i)
