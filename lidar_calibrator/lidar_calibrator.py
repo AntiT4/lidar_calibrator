@@ -118,6 +118,7 @@ class PointCloudPubSub(Node):
         self.calibrator: LidarCalibrator = LidarCalibrator()
         self.lidar_points: np.ndarray = None
         self.lidar_angles: np.ndarray = None
+        self.mat_id: np.ndarray = None
 
     def pointcloud_callback(self, msg: PointCloud2) -> None:
         """PointCloud2 데이터를 받아서 NumPy 배열로 변환 후 출력"""
@@ -134,11 +135,18 @@ class PointCloudPubSub(Node):
         r_arr, lat_arr, lon_arr = cartesian_to_spherical_numpy(
             self.lidar_points[:, 0], self.lidar_points[:, 1], self.lidar_points[:, 2]
         )
+
         self.lidar_angles = self.calculate_angles()
-        error = self.calibrator.calibrate(self.lidar_angles)
+        self.mat_id = np.zeros_like(self.lidar_angles)
+
+        error, drop = self.calibrator.calibrate(self.lidar_angles, self.mat_id)
         # self.get_logger().info(f"r_arr = {r_arr.shape}, error = {error.shape}")
         conv_r_arr = r_arr.reshape(-1, 1) + error
-        x_arr, y_arr, z_arr = spherical_to_cartesian_numpy(conv_r_arr.reshape(-1), lat_arr, lon_arr)
+
+        trunc_r_arr = conv_r_arr[~drop]
+        trunc_lat_arr = lat_arr[~drop]
+        trunc_lon_arr= lon_arr[~drop]
+        x_arr, y_arr, z_arr = spherical_to_cartesian_numpy(trunc_r_arr.reshape(-1), trunc_lat_arr, trunc_lon_arr)
         # self.get_logger().info(f"x = {x_arr.shape}, y = {y_arr.shape}, z = {z_arr.shape}")
         self.publisher.publish(create_pointcloud2(x_arr, y_arr, z_arr))
 
