@@ -137,11 +137,13 @@ class PointCloudPubSub(Node):
         )
 
         self.lidar_angles = self.calculate_angles()
-        self.mat_id = np.zeros_like(self.lidar_angles)
+        self.mat_id = np.zeros_like(self.lidar_angles, dtype=np.int32)
 
         error, drop = self.calibrator.calibrate(self.lidar_angles, self.mat_id)
         # self.get_logger().info(f"r_arr = {r_arr.shape}, error = {error.shape}")
         conv_r_arr = r_arr.reshape(-1, 1) + error
+        lat_arr = lat_arr.reshape(-1, 1)
+        lon_arr = lon_arr.reshape(-1, 1)
 
         trunc_r_arr = conv_r_arr[~drop]
         trunc_lat_arr = lat_arr[~drop]

@@ -33,10 +33,10 @@ def bspline_evaluate(t, c, k, x):
     Returns:
         float or np.ndarray: Evaluated B-spline values at x
     """
-    n = len(c) - 1
+    n = len(c) - k
     spline_value = np.zeros_like(x, dtype=np.float64)
 
-    for i in range(n + 1):
+    for i in range(n - k):
         spline_value += c[i] * bspline_basis(i, k, t, x)
 
     return spline_value
@@ -129,7 +129,7 @@ class LidarCalibrator(object):
 
         # Apply the calibration function element-wise
         def single_calibrate(t, m_id):
-            drop_spline, mean_func, std_func = get_material_model(material_id[m_id])
+            drop_spline, mean_func, std_func = get_material_model(material_ind[m_id])
 
             drop_raw = drop_spline(t)
             drop_prob = np.clip(drop_raw, 0.0, 1.0)
